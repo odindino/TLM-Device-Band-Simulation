@@ -3,15 +3,18 @@
 import matplotlib.pyplot as plt
 from TLM_Device_Model import TLMDevice
 
+# rho_ck = 2.466 ohm-um^2 (source, sio2, -0.5V)
+# rho_ck = 5.875 ohm-um^2 (source, sio2, -1V)
+
 def main():
     # Initialize device
     device = TLMDevice(
-        N_s=2000, N_ch=2000, N_d=2000,
+        N_s=10000, N_ch=5000, N_d=10000,
         L_s=2.0, L_ch=2.0, L_d=2.0,
         W=95.0,
-        R_sk_source=500.0, rho_ck_source=2.0,
-        R_sh_channel=81.6,
-        R_sk_drain=500.0, rho_ck_drain=2.0,
+        R_sk_source=581000.0, rho_ck_source=2.466,
+        R_sh_channel=81600,
+        R_sk_drain=581000.0, rho_ck_drain=2.466,
         V_source=0.0, V_drain=-0.5
     )
 

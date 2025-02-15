@@ -5,6 +5,21 @@ import numpy as np
 class TLMDevice:
     """
     A class to encapsulate the TLM resistor-network model for a Source-Channel-Drain device.
+    
+    R_sk: Sheet resistance under metal contacts (Ohm/sq)
+    R_sh: Sheet resistance of channel (Ohm/sq)
+    rho_ck: contact resistivity (ohm-um^2)
+    L_s: Length of source region (um)
+    L_ch: Length of channel region (um)
+    L_d: Length of drain region (um)
+    W: Width of channel (um)
+    N_s: Number of segments in source region
+    N_ch: Number of segments in channel region
+    N_d: Number of segments in drain region
+    V_source: Voltage at source contact (V)
+    V_drain: Voltage at drain contact (V)
+    L_TK: calibrated transfer length sqrt(rho_ck/R_sk) (um)
+    L_T: Transfer length sqrt(rho_ck/R_sh) (um)
     """
     def __init__(self,
                  N_s, N_ch, N_d,
