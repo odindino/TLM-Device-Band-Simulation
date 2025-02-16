@@ -1,239 +1,176 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import constants
+from scipy import constants as const
+from scipy.linalg import solve_banded
+from scipy.integrate import solve_ivp
 
 class Heterostructure:
     """
-    A class to simulate band alignment and interface effects of multiple 2D regions.
-    
-    This class handles the interaction between different semiconductor regions,
-    calculating band alignment and interface effects based on physical principles.
-    
-    Parameters:
-    -----------
-    regions : list
-        List of BandStructure2D objects representing different material regions
-    region_lengths : list
-        List of lengths for each region (nm)
-    epsilon_r : float, optional
-        Average relative dielectric constant for interface calculations
-    T : float, optional
-        Temperature (K)
+    A class to calculate electronic properties of 2D material heterostructures
+    Handles various types of junctions: semiconductor-semiconductor, metal-semiconductor
     """
-    
-    def __init__(self, regions, region_lengths, epsilon_r=8.0, T=300):
-        if len(regions) < 1:
-            raise ValueError("At least one region must be provided")
-        if len(region_lengths) != len(regions):
-            raise ValueError("Number of region lengths must match number of regions")
-            
-        self.regions = regions
-        self.T = T
-        self.epsilon_r = epsilon_r
-        self.epsilon = self.epsilon_r * constants.epsilon_0
-        self.kT = constants.k * T / constants.e
-        
-        # Set up region positions
-        current_position = 0
-        for region, length in zip(regions, region_lengths):
-            region.x_start = current_position
-            region.x_end = current_position + length
-            current_position += length
-            
-        # Calculate interface properties
-        self.interfaces = self._identify_interfaces()
-        
-    def _identify_interfaces(self):
+    def __init__(self, materials, junction_type='semiconductor'):
         """
-        Identify interfaces between regions and calculate their properties.
-        
-        Returns:
-        --------
-        list
-            List of dictionaries containing interface properties
-        """
-        interfaces = []
-        for i in range(len(self.regions) - 1):
-            region1 = self.regions[i]
-            region2 = self.regions[i + 1]
-            
-            interface = {
-                'position': region1.x_end,
-                'left_region': region1,
-                'right_region': region2,
-                'potential': self._calc_interface_potential(region1, region2),
-                'screening_length': self._calc_screening_length(region1, region2)
-            }
-            interfaces.append(interface)
-            
-        return interfaces
-    
-    def _calc_interface_potential(self, region1, region2):
-        """
-        Calculate the intrinsic potential difference at the interface between regions.
+        Initialize heterostructure with list of material objects
         
         Parameters:
-        -----------
-        region1, region2 : BandStructure2D
-            Adjacent regions forming the interface
+        materials (list): List of BandStructure2D objects in junction order
+        junction_type (str): Type of junction ('semiconductor' or 'metal')
+        """
+        self.materials = materials
+        self.junction_type = junction_type
+        
+        # Physical constants
+        self.q = const.e
+        self.kb = const.k
+        self.eps0 = const.epsilon_0
+        self.h = const.h
+        
+        # Initialize interface parameters
+        self.interface_states = {}
+        self.dipoles = {}
+        self.built_in_potential = None
+        
+        # Calculate basic junction properties
+        self.analyze_junction()
+        
+    def analyze_junction(self):
+        """Analyze basic properties of the junction"""
+        # Get material parameters
+        self.params = []
+        for mat in self.materials:
+            self.params.append(mat.get_material_parameters())
             
-        Returns:
-        --------
-        float
-            Interface potential (eV)
+        # Calculate band offsets
+        self.calculate_band_offsets()
+        
+        # Calculate built-in potential
+        self.calculate_built_in_potential()
+        
+        # Initialize space charge effects
+        self.initialize_space_charge()
+        
+    def calculate_band_offsets(self):
+        """Calculate band offsets at interfaces"""
+        self.conduction_offsets = []
+        self.valence_offsets = []
+        
+        for i in range(len(self.materials)-1):
+            mat1 = self.materials[i]
+            mat2 = self.materials[i+1]
+            
+            # Calculate natural band offsets based on electron affinity
+            dEc = mat2.chi/self.q - mat1.chi/self.q
+            dEv = (mat2.chi/self.q + mat2.Eg/self.q) - (mat1.chi/self.q + mat1.Eg/self.q)
+            
+            self.conduction_offsets.append(dEc)
+            self.valence_offsets.append(dEv)
+            
+    def calculate_built_in_potential(self):
+        """Calculate built-in potential across junction"""
+        if len(self.materials) < 2:
+            return
+            
+        # For semiconductor junction
+        if self.junction_type == 'semiconductor':
+            mat1, mat2 = self.materials[0], self.materials[1]
+            
+            # Calculate built-in potential from Fermi level difference
+            self.built_in_potential = abs(mat1.Ef - mat2.Ef)/self.q
+            
+            # Consider doping effects
+            if hasattr(mat1, 'n2D') and hasattr(mat2, 'n2D'):
+                n1, n2 = mat1.n2D, mat2.n2D
+                if n1 > 0 and n2 > 0:
+                    kT = self.kb * mat1.T
+                    self.built_in_potential += kT/self.q * np.log(n1/n2)
+                    
+    def initialize_space_charge(self):
+        """Initialize space charge region calculations"""
+        if self.built_in_potential is None:
+            return
+            
+        # Calculate depletion widths for each material
+        self.depletion_widths = []
+        for i, mat in enumerate(self.materials[:-1]):
+            eps1 = mat.eps
+            eps2 = self.materials[i+1].eps
+            
+            # Effective screening length (Thomas-Fermi)
+            if hasattr(mat, 'n2D') and mat.n2D > 0:
+                n = mat.n2D
+                m_eff = mat.me if mat.carrier_type == 'n' else mat.mh
+                lambda_TF = np.sqrt(eps1 * self.kb * mat.T / (2 * self.q**2 * n))
+            else:
+                lambda_TF = np.sqrt(eps1 * self.kb * mat.T / (2 * self.q**2 * 1e16))  # Assume minimal carrier density
+                
+            self.depletion_widths.append(lambda_TF)
+            
+    def solve_poisson(self, x_mesh, boundary_conditions):
         """
-        # Work function difference
-        work_function_diff = region2.work_function - region1.work_function
-        
-        # Fermi level difference
-        fermi_difference = region2.E_F - region1.E_F
-        
-        # Built-in potential from carrier density difference
-        carrier_ratio = region2.carrier_density / region1.carrier_density
-        built_in = self.kT * np.log(carrier_ratio)
-        
-        # Total interface potential including work function effect
-        total_potential = work_function_diff + fermi_difference + built_in
-        
-        return total_potential
-    
-    def _calc_screening_length(self, region1, region2):
-        """
-        Calculate characteristic screening length for the interface.
+        Solve 1D Poisson equation across heterostructure
         
         Parameters:
-        -----------
-        region1, region2 : BandStructure2D
-            Adjacent regions forming the interface
-            
+        x_mesh (array): Spatial mesh points
+        boundary_conditions (tuple): (left_value, right_value) for potential
+        
         Returns:
-        --------
-        float
-            Screening length (nm)
+        tuple: (x_points, potential, electric_field)
         """
-        # Use maximum carrier density for screening length calculation
-        max_density = max(region1.carrier_density, region2.carrier_density)
+        dx = x_mesh[1] - x_mesh[0]
+        N = len(x_mesh)
         
-        # Calculate 2D screening length
-        lambda_s = np.sqrt(self.epsilon * self.kT / 
-                          (2 * constants.e * constants.e * max_density)) * 1e9
+        # Set up coefficient matrix for Poisson equation
+        matrix_diagonals = np.zeros((3, N))
+        matrix_diagonals[0, 1:] = 1/(dx**2)  # Upper diagonal
+        matrix_diagonals[1, :] = -2/(dx**2)  # Main diagonal
+        matrix_diagonals[2, :-1] = 1/(dx**2)  # Lower diagonal
         
-        return lambda_s
-    
-    def calc_band_bending(self, x, interface):
+        # Set up charge density vector
+        rho = np.zeros(N)
+        for i, x in enumerate(x_mesh):
+            # Determine which material region we're in
+            mat_index = self.find_material_index(x)
+            if mat_index >= 0:
+                mat = self.materials[mat_index]
+                if hasattr(mat, 'n2D'):
+                    rho[i] = -mat.n2D * self.q / mat.eps if mat.carrier_type == 'n' else mat.n2D * self.q / mat.eps
+                    
+        # Solve system
+        V = solve_banded((1, 1), matrix_diagonals, -rho)
+        
+        # Calculate electric field
+        E = -(V[2:] - V[:-2])/(2*dx)
+        
+        return x_mesh, V, E
+        
+    def find_material_index(self, position):
+        """Find which material a given position corresponds to"""
+        # Implementation depends on how we define material regions
+        # This is a placeholder
+        return 0
+        
+    def get_band_profile(self, x_points):
         """
-        Calculate band bending profile near an interface.
+        Calculate band profile across heterostructure
         
         Parameters:
-        -----------
-        x : array-like
-            Position array (nm)
-        interface : dict
-            Interface properties
-            
+        x_points (array): Position points to evaluate
+        
         Returns:
-        --------
-        array-like
-            Band bending potential (eV)
+        tuple: Arrays of (conduction_band, valence_band) energies
         """
-        # Calculate relative distances from interface
-        distance = x - interface['position']
-        lambda_s = interface['screening_length']
+        # Get potential profile
+        _, V, _ = self.solve_poisson(x_points, (0, 0))
         
-        # Initialize bending array
-        bending = np.zeros_like(x)
+        Ec = np.zeros_like(x_points)
+        Ev = np.zeros_like(x_points)
         
-        # Calculate exponential decay on both sides
-        left_mask = distance < 0
-        right_mask = distance >= 0
-        
-        # Apply band bending with screening
-        bending[left_mask] = interface['potential'] * \
-            np.exp(distance[left_mask] / lambda_s)
-        bending[right_mask] = interface['potential'] * \
-            np.exp(-distance[right_mask] / lambda_s)
-        
-        return bending
-    
-    def calculate_bands(self, x):
-        """
-        Calculate complete band structure including interface effects.
-        
-        Parameters:
-        -----------
-        x : array-like
-            Position array (nm)
-            
-        Returns:
-        --------
-        tuple : (E_c, E_v, E_f)
-            Band energies and Fermi level (eV)
-        """
-        # Initialize energy arrays
-        E_c = np.zeros_like(x)
-        E_v = np.zeros_like(x)
-        E_f = np.zeros_like(x)
-        
-        # Get intrinsic band positions for each region
-        for region in self.regions:
-            E_c_region, E_v_region, mask = region.get_band_positions(x)
-            E_c[mask] = E_c_region[mask]
-            E_v[mask] = E_v_region[mask]
-            E_f[mask] = region.E_F
-        
-        # Add interface effects
-        total_bending = np.zeros_like(x)
-        for interface in self.interfaces:
-            bending = self.calc_band_bending(x, interface)
-            total_bending += bending
-        
-        # Apply total band bending to all bands
-        E_c += total_bending
-        E_v += total_bending
-        E_f += total_bending
-        
-        return E_c, E_v, E_f
-    
-    def plot_bands(self, x_range=None, show_fermi=True):
-        """
-        Plot the complete band structure with interface effects.
-        
-        Parameters:
-        -----------
-        x_range : tuple, optional
-            (x_min, x_max) for plotting range (nm)
-        show_fermi : bool, optional
-            Whether to show Fermi level in plot
-        """
-        if x_range is None:
-            x_start = min(region.x_start for region in self.regions)
-            x_end = max(region.x_end for region in self.regions)
-            x = np.linspace(x_start, x_end, 1000)
-        else:
-            x = np.linspace(x_range[0], x_range[1], 1000)
-            
-        E_c, E_v, E_f = self.calculate_bands(x)
-        
-        plt.figure(figsize=(12, 8))
-        plt.plot(x, E_c, 'b-', label='Conduction Band')
-        plt.plot(x, E_v, 'r-', label='Valence Band')
-        if show_fermi:
-            plt.plot(x, E_f, 'g--', label='Fermi Level')
-        plt.axhline(y=0, color='k', linestyle=':', label='Vacuum Level')
-        
-        # Add region labels and boundaries
-        for region in self.regions:
-            region_center = (region.x_start + region.x_end) / 2
-            plt.text(region_center, -7.5, region.name, ha='center')
-            plt.axvline(x=region.x_start, color='gray', linestyle=':')
-        
-        plt.axvline(x=self.regions[-1].x_end, color='gray', linestyle=':')
-        
-        plt.xlabel('Position (nm)')
-        plt.ylabel('Energy (eV)')
-        plt.title('Band Alignment with Interface Effects')
-        plt.legend()
-        plt.grid(True)
-        plt.ylim(-8, 1)
-        
-        plt.show()
+        # Fill in band profiles
+        for i, x in enumerate(x_points):
+            mat_index = self.find_material_index(x)
+            if mat_index >= 0:
+                mat = self.materials[mat_index]
+                Ec[i] = mat.Ec - self.q * V[i]
+                Ev[i] = mat.Ev - self.q * V[i]
+                
+        return Ec, Ev

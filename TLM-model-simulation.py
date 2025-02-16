@@ -1,5 +1,3 @@
-# main_sim_class.py
-
 import matplotlib.pyplot as plt
 from TLM_Device_Model import TLMDevice
 
@@ -9,7 +7,7 @@ from TLM_Device_Model import TLMDevice
 def main():
     # Initialize device
     device = TLMDevice(
-        N_s=10000, N_ch=5000, N_d=10000,
+        N_s=5000, N_ch=2000, N_d=5000,
         L_s=2.0, L_ch=2.0, L_d=2.0,
         W=95.0,
         R_sk_source=581000.0, rho_ck_source=2.466,

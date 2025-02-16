@@ -1,5 +1,3 @@
-# tlm_device_model_class.py
-
 import numpy as np
 
 class TLMDevice:
@@ -136,6 +134,13 @@ class TLMDevice:
 
         V_nodes = np.linalg.solve(G, Ivec)
         self.V_nodes = V_nodes
+        
+        # use matplotlib to plot the G matrix
+        # import matplotlib.pyplot as plt
+        # plt.figure()
+        # plt.imshow(G, cmap='viridis', interpolation='nearest')
+        # plt.colorbar()
+        # plt.show()
 
     def compute_currents(self):
         """
