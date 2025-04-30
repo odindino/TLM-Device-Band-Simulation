@@ -51,14 +51,24 @@ def plot_voltage_distribution(device, x_range=None, title="TLM Model Voltage Dis
     
     return fig
 
+# From TLM Device result:
+# Rtot = 150951 ohm for 2um channel (extroplated from 0.2um, 0.6um, 0.8um and 1um)
+# Rsh = 74784 ohm/sq according to TLM model
+# Rsk = 334680 ohm/sq according to revised TLM model
+# Ltk = 0.00206 um for Vds = -0.5V on SiO2
+# Ltk = 0.00318 um for Vds = -1V on SiO2
+# rho_ck = Ltk^2 * Rsk
+# rho_ck = 1.420 ohm-um^2 (source, sio2, -0.5V)
+# rho_ck = 3.395 ohm-um^2 (source, sio2, -1V)
+
 def main():
     device = TLMDevice(
         N_s=8000, N_ch=4000, N_d=8000,
         L_s=2.0, L_ch=2.0, L_d=2.0,
         W=95.0,
-        R_sk_source=581000.0, rho_ck_source=2.466,
-        R_sh_channel=81600,
-        R_sk_drain=581000.0, rho_ck_drain=2.466,
+        R_sk_source=334680.0, rho_ck_source=1.420,
+        R_sh_channel=74784,
+        R_sk_drain=334680.0, rho_ck_drain=1.420,
         V_source=0.0, V_drain=-0.5
     )
 
@@ -66,9 +76,9 @@ def main():
     device.compute_currents()
     setup_plot_style()
 
-    plot_voltage_distribution(device, filename='voltage_full_range.svg')
-    plot_voltage_distribution(device, x_range=(1.98, 2.02), filename='voltage_source_channel.svg')
-    plot_voltage_distribution(device, x_range=(3.98, 4.02), filename='voltage_drain_channel.svg')
+    plot_voltage_distribution(device, filename='voltage_full_range_v2.svg')
+    plot_voltage_distribution(device, x_range=(1.98, 2.02), filename='voltage_source_channel_v2.svg')
+    plot_voltage_distribution(device, x_range=(3.98, 4.02), filename='voltage_drain_channel_v2.svg')
 
 if __name__ == "__main__":
     main()
