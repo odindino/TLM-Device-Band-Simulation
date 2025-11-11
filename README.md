@@ -72,7 +72,7 @@ The typical installation time is less than 5 minutes on a standard desktop compu
 To run a demonstration of the TLM device model with predefined parameters:
 
 ```bash
-python TLM-model-simulation for manuscript_v2.py
+python TLM-model-simulation_for_manuscript_v2.py
 ```
 
 This will:
